@@ -13,13 +13,12 @@ weapon spread is reduced while aiming.
   secondary fire or native weapon scopes.
 - Works alongside **Mouse Double Tap Dash**.
 
-## Version 1.3.1
+## Version 1.3.2
 
-- Fixed the **Aim key** row not appearing on the main Controls/Commands page.
-  It is now injected on `Page_Controls`, under the Double Tap row.
-- When that page uses the standard settings row, the native
-  `SettingsListRemappingSelectableUI` prefab is used only for the Aim key row,
-  so the native rebinding popup still works.
+- Fixed the **Aim key** row title being blank on the native remapping row.
+- The title is now localized: **Visée** in French, **Aiming** otherwise.
+- The title is reapplied after the game's remapping-row setup, so it is no
+  longer overwritten by a null display name.
 - Default key remains **V**.
 - No weapon animation or weapon pose change yet.
 - No sensitivity or recoil change.

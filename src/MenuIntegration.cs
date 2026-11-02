@@ -12,7 +12,8 @@ namespace MouseAim
 {
     internal static class MenuIntegration
     {
-        private const string MenuLabel = "Aim key";
+        private const string EnglishTitle = "Aiming";
+        private const string FrenchTitle = "Visée";
         private const string ActionName = "Aim";
 
         private static ManualLogSource _logger;
@@ -35,6 +36,7 @@ namespace MouseAim
         private static bool _updateNamePatched;
         private static bool _textPatched;
         private static bool _addItemPatched;
+        private static bool _remappingSetupPatched;
         private static bool _injected;
         private static bool _bindingHooked;
         private static bool _actionErrorLogged;
@@ -43,6 +45,7 @@ namespace MouseAim
         private static float _nextSettingTryTime;
         private static float _nextPatchTryTime;
         private static bool _errorLogged;
+        private static string _loggedTitle;
 
         private static InputAction _aimAction;
         private static string _lastKeyboardPath;
@@ -450,6 +453,27 @@ namespace MouseAim
                     }
                 }
 
+                if (!_remappingSetupPatched)
+                {
+                    if (_remappingType == null)
+                        _remappingType = FindType("UI.Notebook.Settings.SettingsListRemappingSelectableUI");
+
+                    MethodInfo remappingSetup = _remappingType != null
+                        ? FindMethod(_remappingType, "Setup", 3)
+                        : null;
+
+                    if (remappingSetup != null)
+                    {
+                        _harmony.Patch(remappingSetup, postfix: new HarmonyMethod(
+                            typeof(MenuIntegration).GetMethod(nameof(RemappingRowSetupPostfix), BindingFlags.Static | BindingFlags.NonPublic)));
+                        _remappingSetupPatched = true;
+                    }
+                    else
+                    {
+                        LogError("Remapping Setup method not found");
+                    }
+                }
+
                 _logger.LogInfo("[MouseAim] menu Harmony patch pass complete");
             }
             catch (Exception e)
@@ -674,6 +698,15 @@ namespace MouseAim
             OverrideRowLabel(__instance);
         }
 
+        private static void RemappingRowSetupPostfix(object __instance, object settingAsset)
+        {
+            if (!ReferenceEquals(settingAsset, _setting))
+                return;
+
+            _rowNameRow = __instance;
+            OverrideRowLabel(__instance);
+        }
+
         private static void RowUpdatePostfix(object __instance)
         {
             object current = GetRowSetting(__instance);
@@ -722,7 +755,7 @@ namespace MouseAim
                     return;
 
                 _rowNameText = nameText;
-                OverrideText(nameText, MenuLabel);
+                OverrideText(nameText, GetAimTitle());
             }
             catch (Exception e)
             {
@@ -748,12 +781,51 @@ namespace MouseAim
 
             try
             {
-                OverrideText(__instance, MenuLabel);
+                OverrideText(__instance, GetAimTitle());
             }
             catch (Exception e)
             {
                 LogError("LocalizedTextPostfix: " + e.Message);
             }
+        }
+
+        private static string GetAimTitle()
+        {
+            string title = EnglishTitle;
+
+            try
+            {
+                Type serviceType = FindType("LocalizationService");
+                MethodInfo getCurrentLocale = serviceType?.GetMethod(
+                    "GetCurrentLocale",
+                    BindingFlags.Static | BindingFlags.Public);
+
+                object locale = getCurrentLocale?.Invoke(null, null);
+                object identifier = locale?.GetType().GetProperty(
+                    "Identifier",
+                    BindingFlags.Instance | BindingFlags.Public)?.GetValue(locale);
+                string code = identifier?.GetType().GetProperty(
+                    "Code",
+                    BindingFlags.Instance | BindingFlags.Public)?.GetValue(identifier) as string;
+
+                if (!string.IsNullOrEmpty(code) &&
+                    code.StartsWith("fr", StringComparison.OrdinalIgnoreCase))
+                {
+                    title = FrenchTitle;
+                }
+            }
+            catch
+            {
+                // fall back to English
+            }
+
+            if (_verbose && _loggedTitle != title)
+            {
+                _loggedTitle = title;
+                _logger.LogInfo("[MouseAim] title: " + title);
+            }
+
+            return title;
         }
 
         private static void OverrideText(object projectLocalizedText, string text)

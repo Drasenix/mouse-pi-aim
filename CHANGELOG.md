@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.2
+- Fixed the **Aim key** row title being blank on the native remapping row.
+- The title is now localized: **Visée** in French, **Aiming** otherwise.
+- The title is reapplied after the game's remapping-row setup, so it is no
+  longer overwritten by a null display name.
+
 ## 1.3.1
 - Fixed the **Aim key** row not appearing on the main Controls/Commands page.
   It is now injected on `Page_Controls`, under the Double Tap row.
