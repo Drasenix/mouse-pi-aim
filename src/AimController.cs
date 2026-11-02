@@ -8,6 +8,7 @@ using MouseDevice = UnityEngine.InputSystem.Mouse;
 
 namespace MouseAim
 {
+    [DefaultExecutionOrder(-500)]
     public class AimController : MonoBehaviour
     {
         private const string ModifierId = "mouse-aim";
@@ -62,6 +63,8 @@ namespace MouseAim
 
         private void Update()
         {
+            MenuIntegration.Tick();
+
             Plugin plugin = Plugin.Instance;
             if (plugin == null)
                 return;
@@ -70,7 +73,7 @@ namespace MouseAim
 
             if (!plugin.Enabled.Value)
             {
-                StopAim();
+                StopAim("disabled");
                 return;
             }
 
@@ -81,13 +84,19 @@ namespace MouseAim
                     _bindingWarningLogged = true;
                     LogWarning("[MouseAim] invalid AimButton '" + plugin.AimButton.Value + "'");
                 }
-                StopAim();
+                StopAim("invalid binding");
                 return;
             }
 
-            if (!held || !CanAim())
+            if (!held)
             {
-                StopAim();
+                StopAim("released");
+                return;
+            }
+
+            if (!CanAim(out string reason))
+            {
+                StopAim(reason);
                 return;
             }
 
@@ -112,47 +121,89 @@ namespace MouseAim
                 __result *= s_spreadMultiplier;
         }
 
-        private static bool CanAim()
+        private static bool CanAim(out string reason)
         {
+            reason = null;
+
             Plugin plugin = Plugin.Instance;
             if (plugin == null)
+            {
+                reason = "no plugin";
                 return false;
+            }
 
             Player player = Player.Instance;
             if (player == null)
+            {
+                reason = "no player";
                 return false;
+            }
 
             if (Cursor.lockState != CursorLockMode.Locked)
+            {
+                reason = "cursor unlocked";
                 return false;
+            }
 
             if (!Application.isFocused)
+            {
+                reason = "not focused";
                 return false;
+            }
 
             if (Time.timeScale <= 0f)
+            {
+                reason = "paused";
                 return false;
+            }
 
             PlayerPhotoCameraController photo = player.PhotoCameraController;
             if (photo != null && photo.IsUsingCamera)
+            {
+                reason = "photo camera";
                 return false;
+            }
 
             PlayerWeaponController weapons = player.WeaponController;
             if (weapons == null)
+            {
+                reason = "no weapon controller";
                 return false;
+            }
 
             if (plugin.RequireWeaponDrawn.Value)
             {
                 if (weapons.CurrentWeapon == null)
+                {
+                    reason = "no weapon";
                     return false;
+                }
 
                 if (weapons.WeaponHolstered || weapons.WeaponHolsteredRequestedState)
+                {
+                    reason = "weapon holstered";
                     return false;
+                }
             }
 
             WeaponState state = weapons.CurrentWeaponState;
-            if (state == WeaponState.SecondaryFiring ||
-                state == WeaponState.Misc ||
-                state == WeaponState.Changing)
+            if (state == WeaponState.SecondaryFiring)
+            {
+                reason = "secondary ability";
                 return false;
+            }
+
+            if (state == WeaponState.Misc)
+            {
+                reason = "misc state";
+                return false;
+            }
+
+            if (state == WeaponState.Changing)
+            {
+                reason = "changing weapon";
+                return false;
+            }
 
             return true;
         }
@@ -169,13 +220,17 @@ namespace MouseAim
                 s_isAiming = true;
 
                 if (plugin.Verbose.Value)
-                    LogInfo("[MouseAim] aim start");
+                {
+                    LogInfo("[MouseAim] aim start (key=" + plugin.AimButton.Value +
+                            ", zoom=" + plugin.AimZoomDegrees.Value.ToString("0.0") +
+                            ", spread=" + plugin.AimSpreadMultiplier.Value.ToString("0.00") + ")");
+                }
             }
 
             EnsureModifier();
         }
 
-        private void StopAim()
+        private void StopAim(string reason)
         {
             if (!_aimActive)
             {
@@ -191,7 +246,7 @@ namespace MouseAim
 
             Plugin plugin = Plugin.Instance;
             if (plugin != null && plugin.Verbose.Value)
-                LogInfo("[MouseAim] aim stop");
+                LogInfo("[MouseAim] aim stop (" + reason + ")");
         }
 
         private void EnsureModifier()
@@ -305,28 +360,22 @@ namespace MouseAim
         private bool _active;
         private float _current;
         private float _target;
-        private float _duration = 0.15f;
-        private float _velocity;
+        private float _duration = 0.08f;
 
         public bool KeepRunning => _active || Mathf.Abs(_current) > 0.01f;
 
         public float Update()
         {
             float target = _active ? _target : 0f;
+            float speed = 1f / Mathf.Max(0.01f, _duration);
+            float t = 1f - Mathf.Exp(-speed * Time.unscaledDeltaTime);
 
-            _current = Mathf.SmoothDamp(
-                _current,
-                target,
-                ref _velocity,
-                Mathf.Max(0.01f, _duration),
-                float.PositiveInfinity,
-                Time.unscaledDeltaTime);
+            _current = Mathf.Lerp(_current, target, t);
 
             if (!_active && Mathf.Abs(_current) < 0.01f)
-            {
                 _current = 0f;
-                _velocity = 0f;
-            }
+            else if (_active && Mathf.Abs(_current - _target) < 0.01f)
+                _current = _target;
 
             return _current;
         }

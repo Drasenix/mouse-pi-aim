@@ -10,7 +10,7 @@ namespace MouseAim
     {
         public const string Guid = "com.cono.mouseaim";
         public const string Name = "Mouse Aim";
-        public const string Version = "1.0.0";
+        public const string Version = "1.1.0";
 
         internal static Plugin Instance { get; private set; }
 
@@ -30,14 +30,14 @@ namespace MouseAim
 
             Enabled = Config.Bind("General", "Enabled", true,
                 "Active la visée maintenue.");
-            AimButton = Config.Bind("General", "AimButton", "MiddleMouse",
-                "Touche de visée maintenue. Ex: MiddleMouse, RightMouse, Mouse4, Mouse5, LeftShift, V. " +
-                "Le clic molette est dédié et n'utilise pas l'action AlternateShoot du jeu.");
+            AimButton = Config.Bind("General", "AimButton", "V",
+                "Touche de visée maintenue. Ex: V, MiddleMouse, RightMouse, Mouse4, Mouse5, LeftShift. " +
+                "Modifiable aussi dans Settings > Controls > Aim key.");
 
-            AimZoomDegrees = Config.Bind("Zoom", "AimZoomDegrees", 20f,
+            AimZoomDegrees = Config.Bind("Zoom", "AimZoomDegrees", 28f,
                 new ConfigDescription("Réduction du FOV pendant la visée, en degrés.",
                     new AcceptableValueRange<float>(0f, 60f)));
-            AimTransitionSeconds = Config.Bind("Zoom", "AimTransitionSeconds", 0.15f,
+            AimTransitionSeconds = Config.Bind("Zoom", "AimTransitionSeconds", 0.08f,
                 new ConfigDescription("Durée de la transition de zoom, en secondes.",
                     new AcceptableValueRange<float>(0.01f, 1f)));
 
@@ -51,6 +51,7 @@ namespace MouseAim
                 "Écrit un log à chaque entrée/sortie de visée.");
 
             gameObject.AddComponent<AimController>();
+            MenuIntegration.Initialize(Logger, Verbose.Value);
 
             Logger.LogInfo("[MouseAim] loaded v" + Version);
         }

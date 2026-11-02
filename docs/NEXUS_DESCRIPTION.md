@@ -3,17 +3,22 @@
 Hold a dedicated key to aim in MOUSE: P.I. For Hire. The camera zooms in and
 weapon spread is reduced while aiming.
 
-- Default aim button: **middle mouse button** (hold to aim, release to stop).
-- Camera FOV zoom with a smooth transition.
+- Default aim button: **V** (hold to aim, release to stop).
+- Camera FOV zoom with a smooth, responsive transition.
 - Reduced weapon spread; the crosshair tightens automatically.
-- Dedicated, configurable aim button: `MiddleMouse`, `RightMouse`, `Mouse4`,
-  `Mouse5`, or a keyboard key.
+- Dedicated, configurable aim button: `V`, `MiddleMouse`, `RightMouse`,
+  `LeftShift`, `Mouse4`, `Mouse5`, `B` or `N`.
+- The aim key can be changed in **Settings > Controls > Aim key**.
 - Does not use the game's `AlternateShoot` action, so it does not conflict with
   secondary fire or native weapon scopes.
 - Works alongside **Mouse Double Tap Dash**.
 
-## Version 1.0.0
+## Version 1.1.0
 
+- Default key changed from middle mouse to **V**.
+- In-game **Aim key** setting added.
+- Default zoom increased to 28°.
+- Faster, more responsive zoom transition.
 - No weapon animation or weapon pose change yet: the weapon stays in its normal
   pose while aiming.
 - No sensitivity or recoil change.
@@ -41,7 +46,7 @@ weapon spread is reduced while aiming.
    ```
 
 3. Launch the game.
-4. Hold the middle mouse button while a weapon is drawn.
+4. Hold **V** while a weapon is drawn.
 
 ## Configuration
 
@@ -50,11 +55,11 @@ File: `BepInEx/config/com.cono.mouseaim.cfg`
 ```ini
 [General]
 Enabled = true
-AimButton = MiddleMouse
+AimButton = V
 
 [Zoom]
-AimZoomDegrees = 20
-AimTransitionSeconds = 0.15
+AimZoomDegrees = 28
+AimTransitionSeconds = 0.08
 
 [Accuracy]
 AimSpreadMultiplier = 0.5
@@ -68,9 +73,9 @@ Verbose = false
 
 - `AimZoomDegrees = 0`: accuracy only, no zoom.
 - `AimSpreadMultiplier = 1`: zoom only, no accuracy change.
-- `AimButton`: `MiddleMouse`, `RightMouse`, `Mouse4`, `Mouse5`, or a keyboard key.
-  `MiddleMouse` is recommended; `RightMouse` may conflict with secondary fire or
-  native scopes.
+- `AimButton`: `V`, `MiddleMouse`, `RightMouse`, `LeftShift`, `Mouse4`,
+  `Mouse5`, `B` or `N`. Can also be changed in **Settings > Controls > Aim key**.
+  `RightMouse` may conflict with secondary fire or native scopes.
 
 Change the values in the file and restart the game.
 
