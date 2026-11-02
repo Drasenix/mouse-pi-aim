@@ -1,5 +1,7 @@
 # Mouse Aim
 
+[![Header](docs/images/header-1280x365.png)](docs/images/header-1280x365.png)
+
 Hold a dedicated key to aim in **MOUSE: P.I. For Hire**: the camera zooms in
 and weapon spread is reduced.
 
