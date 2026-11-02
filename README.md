@@ -19,7 +19,7 @@ button is **V**, and it can be changed in **Settings > Controls > Aim key**.
   same rebinding popup used by the other Commands entries.
 - Works alongside the **Mouse Double Tap Dash** mod.
 
-## What version 1.3.0 does not do
+## What version 1.3.1 does not do
 
 - No weapon animation or weapon pose change: the weapon stays in its normal
   pose while aiming.
@@ -43,7 +43,7 @@ button is **V**, and it can be changed in **Settings > Controls > Aim key**.
 1. Install the unstripped BepInEx package into the game root (the folder that
    contains `MOUSE.exe`).
 2. Launch the game once, then check that `BepInEx/LogOutput.log` exists.
-3. Extract `MouseAim-1.3.0.zip` into the game root. The result must be:
+3. Extract `MouseAim-1.3.1.zip` into the game root. The result must be:
 
    ```
    <game>/BepInEx/plugins/MouseAim.dll

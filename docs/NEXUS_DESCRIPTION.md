@@ -13,19 +13,16 @@ weapon spread is reduced while aiming.
   secondary fire or native weapon scopes.
 - Works alongside **Mouse Double Tap Dash**.
 
-## Version 1.3.0
+## Version 1.3.1
 
-- The **Aim key** row now uses the game's native Commands rebinding UI
-  (`SettingInputBinding` / `ControlsRemapping`): click it, then press the key
-  or mouse button in the same popup style as the other Commands entries.
-- Removed the custom key-capture row and its dead code.
-- Added `AimGamepadBinding` for the gamepad side of the native rebinding.
+- Fixed the **Aim key** row not appearing on the main Controls/Commands page.
+  It is now injected on `Page_Controls`, under the Double Tap row.
+- When that page uses the standard settings row, the native
+  `SettingsListRemappingSelectableUI` prefab is used only for the Aim key row,
+  so the native rebinding popup still works.
 - Default key remains **V**.
-- No weapon animation or weapon pose change yet: the weapon stays in its normal
-  pose while aiming.
+- No weapon animation or weapon pose change yet.
 - No sensitivity or recoil change.
-- Generic aim is skipped while a weapon's secondary ability is active (native
-  scope or alternate fire), to avoid stacking two zoom effects.
 
 ## Requirements
 

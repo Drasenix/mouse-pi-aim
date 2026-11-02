@@ -23,6 +23,8 @@ namespace MouseAim
 
         private static Type _pageType;
         private static Type _rowType;
+        private static Type _remappingType;
+        private static object _remappingPrefab;
         private static Type _textType;
         private static object _rowNameText;
         private static object _rowNameRow;
@@ -32,6 +34,7 @@ namespace MouseAim
         private static bool _setupPatched;
         private static bool _updateNamePatched;
         private static bool _textPatched;
+        private static bool _addItemPatched;
         private static bool _injected;
         private static bool _bindingHooked;
         private static bool _actionErrorLogged;
@@ -429,6 +432,24 @@ namespace MouseAim
                     _textPatched = true;
                 }
 
+                if (!_addItemPatched)
+                {
+                    MethodInfo addItem = FindMethod(_pageType, "AddSettingsPageItem", 4);
+                    if (addItem != null)
+                    {
+                        _harmony.Patch(addItem,
+                            prefix: new HarmonyMethod(
+                                typeof(MenuIntegration).GetMethod(nameof(AddSettingsPageItemPrefix), BindingFlags.Static | BindingFlags.NonPublic)),
+                            postfix: new HarmonyMethod(
+                                typeof(MenuIntegration).GetMethod(nameof(AddSettingsPageItemPostfix), BindingFlags.Static | BindingFlags.NonPublic)));
+                        _addItemPatched = true;
+                    }
+                    else
+                    {
+                        LogError("AddSettingsPageItem method not found");
+                    }
+                }
+
                 _logger.LogInfo("[MouseAim] menu Harmony patch pass complete");
             }
             catch (Exception e)
@@ -436,6 +457,33 @@ namespace MouseAim
                 _patchAttempted = false;
                 LogError("ApplyPatches: " + e.Message);
             }
+        }
+
+        private static void AddSettingsPageItemPrefix(object __instance, object item, ref object __state)
+        {
+            __state = null;
+
+            if (!ReferenceEquals(item, _setting) || _remappingPrefab == null)
+                return;
+
+            object current = GetField(__instance, "listItemPrefab");
+            if (current == null)
+                return;
+
+            if (_remappingType != null && _remappingType.IsAssignableFrom(current.GetType()))
+                return;
+
+            __state = current;
+            SetField(__instance, "listItemPrefab", _remappingPrefab);
+
+            if (_verbose)
+                _logger.LogInfo("[MouseAim] using remapping row prefab for Aim key");
+        }
+
+        private static void AddSettingsPageItemPostfix(object __instance, object __state)
+        {
+            if (__state != null)
+                SetField(__instance, "listItemPrefab", __state);
         }
 
         private static void TryInject()
@@ -446,6 +494,9 @@ namespace MouseAim
             if (_pageType == null)
                 _pageType = FindType("UI.Notebook.Settings.SettingsPageUI");
 
+            if (_remappingType == null)
+                _remappingType = FindType("UI.Notebook.Settings.SettingsListRemappingSelectableUI");
+
             if (_pageType == null)
                 return;
 
@@ -455,6 +506,10 @@ namespace MouseAim
                 if (pages == null || pages.Length == 0)
                     return;
 
+                object exactPage = null;
+                object exactGroup = null;
+                object doubleTapPage = null;
+                object doubleTapGroup = null;
                 object fallbackPage = null;
                 object fallbackGroup = null;
 
@@ -468,17 +523,19 @@ namespace MouseAim
                     if (groups == null || groups.Count == 0)
                         continue;
 
-                    bool isVideo = GetField(page, "settingResolution") != null;
-                    object firstGroup = null;
-
-                    if (_verbose)
+                    object pagePrefab = GetField(page, "listItemPrefab");
+                    if (_remappingPrefab == null && _remappingType != null && pagePrefab != null &&
+                        _remappingType.IsAssignableFrom(pagePrefab.GetType()))
                     {
-                        object pagePrefab = GetField(page, "listItemPrefab");
-                        _logger.LogInfo("[MouseAim] page candidate '" + ((UnityEngine.Object)page).name +
-                                        "' video=" + isVideo +
-                                        " groups=" + groups.Count +
-                                        " rowPrefab=" + (pagePrefab != null ? pagePrefab.GetType().FullName : "null"));
+                        _remappingPrefab = pagePrefab;
                     }
+
+                    bool isVideo = GetField(page, "settingResolution") != null;
+                    if (isVideo)
+                        continue;
+
+                    object pageFirstGroup = null;
+                    object pageDoubleTapGroup = null;
 
                     for (int g = 0; g < groups.Count; g++)
                     {
@@ -494,46 +551,85 @@ namespace MouseAim
                         if (rect == null)
                             continue;
 
-                        if (firstGroup == null)
-                            firstGroup = group;
+                        if (pageFirstGroup == null)
+                            pageFirstGroup = group;
 
-                        if (!isVideo)
+                        if (pageDoubleTapGroup == null &&
+                            ContainsSettingName(assets, "DoubleTapDashEnabled"))
                         {
-                            if (!assets.Contains(_setting))
-                                assets.Add(_setting);
-                            InjectIntoPage(page);
-                            return;
+                            pageDoubleTapGroup = group;
                         }
                     }
 
-                    if (!isVideo && firstGroup != null)
+                    if (pageFirstGroup == null)
+                        continue;
+
+                    string pageName = ((UnityEngine.Object)page).name;
+
+                    if (pageName == "Page_Controls" && exactPage == null)
                     {
-                        IList assets = GetField(firstGroup, "settingAssets") as IList;
-                        if (assets != null && !assets.Contains(_setting))
-                            assets.Add(_setting);
-                        InjectIntoPage(page);
-                        return;
+                        exactPage = page;
+                        exactGroup = pageDoubleTapGroup ?? pageFirstGroup;
                     }
 
-                    if (fallbackPage == null && firstGroup != null)
+                    if (pageDoubleTapGroup != null && doubleTapPage == null)
+                    {
+                        doubleTapPage = page;
+                        doubleTapGroup = pageDoubleTapGroup;
+                    }
+
+                    if (fallbackPage == null)
                     {
                         fallbackPage = page;
-                        fallbackGroup = firstGroup;
+                        fallbackGroup = pageDoubleTapGroup ?? pageFirstGroup;
                     }
                 }
 
-                if (fallbackPage != null && fallbackGroup != null)
+                object targetPage = exactPage ?? doubleTapPage ?? fallbackPage;
+                object targetGroup = exactPage != null ? exactGroup :
+                                     doubleTapPage != null ? doubleTapGroup : fallbackGroup;
+
+                if (targetPage == null || targetGroup == null)
+                    return;
+
+                if (_verbose)
                 {
-                    IList assets = GetField(fallbackGroup, "settingAssets") as IList;
-                    if (assets != null && !assets.Contains(_setting))
-                        assets.Add(_setting);
-                    InjectIntoPage(fallbackPage);
+                    object targetPrefab = GetField(targetPage, "listItemPrefab");
+                    _logger.LogInfo("[MouseAim] target page '" + ((UnityEngine.Object)targetPage).name +
+                                    "' rowPrefab=" + (targetPrefab != null ? targetPrefab.GetType().FullName : "null") +
+                                    " remappingPrefab=" + (_remappingPrefab != null ? "yes" : "no"));
                 }
+
+                if (_remappingPrefab == null)
+                {
+                    _logger.LogWarning("[MouseAim] remapping row prefab not found; Aim key may not open the native rebind popup");
+                }
+
+                IList targetAssets = GetField(targetGroup, "settingAssets") as IList;
+                if (targetAssets != null && !targetAssets.Contains(_setting))
+                    targetAssets.Add(_setting);
+
+                InjectIntoPage(targetPage);
             }
             catch (Exception e)
             {
                 LogError("TryInject: " + e.Message);
             }
+        }
+
+        private static bool ContainsSettingName(IList assets, string name)
+        {
+            if (assets == null)
+                return false;
+
+            for (int i = 0; i < assets.Count; i++)
+            {
+                UnityEngine.Object asset = assets[i] as UnityEngine.Object;
+                if (asset != null && asset.name == name)
+                    return true;
+            }
+
+            return false;
         }
 
         private static void InjectIntoPage(object page)

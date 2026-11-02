@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.1
+- Fixed the **Aim key** row not appearing on the main Controls/Commands page.
+  It is now injected on `Page_Controls`, under the Double Tap row.
+- When that page uses the standard settings row, the mod swaps in the native
+  `SettingsListRemappingSelectableUI` prefab only for the Aim key row, so the
+  native rebinding popup still works.
+
 ## 1.3.0
 - The **Aim key** row now uses the game's native Commands rebinding UI
   (`SettingInputBinding` / `ControlsRemapping`): click it, then press the key
