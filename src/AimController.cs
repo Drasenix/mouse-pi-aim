@@ -1,10 +1,8 @@
 using System;
 using System.Reflection;
-using BepInEx.Logging;
 using HarmonyLib;
 using UnityEngine;
 using UnityEngine.InputSystem;
-using MouseDevice = UnityEngine.InputSystem.Mouse;
 
 namespace MouseAim
 {
@@ -20,7 +18,6 @@ namespace MouseAim
         private CameraFOVController _fovController;
         private AimFOVModifier _fovModifier;
         private bool _aimActive;
-        private bool _bindingWarningLogged;
 
         private void Awake()
         {
@@ -64,7 +61,6 @@ namespace MouseAim
         private void Update()
         {
             MenuIntegration.Tick();
-            MenuIntegration.UpdateKeyCapture();
 
             Plugin plugin = Plugin.Instance;
             if (plugin == null)
@@ -78,18 +74,14 @@ namespace MouseAim
                 return;
             }
 
-            if (!TryReadAimButton(plugin.AimButton.Value, out bool held))
+            InputAction aimAction = MenuIntegration.AimAction;
+            if (aimAction == null)
             {
-                if (!_bindingWarningLogged)
-                {
-                    _bindingWarningLogged = true;
-                    LogWarning("[MouseAim] invalid AimButton '" + plugin.AimButton.Value + "'");
-                }
-                StopAim("invalid binding");
+                StopAim("action not ready");
                 return;
             }
 
-            if (!held)
+            if (!aimAction.IsPressed())
             {
                 StopAim("released");
                 return;
@@ -108,6 +100,8 @@ namespace MouseAim
         {
             s_isAiming = false;
             s_spreadMultiplier = 1f;
+
+            MenuIntegration.Shutdown();
 
             if (_fovController != null)
                 _fovController.RemoveModifier(ModifierId);
@@ -280,65 +274,6 @@ namespace MouseAim
 
             _fovModifier.SetTarget(-plugin.AimZoomDegrees.Value, plugin.AimTransitionSeconds.Value);
             _fovModifier.SetActive(true);
-        }
-
-        private static bool TryReadAimButton(string binding, out bool held)
-        {
-            held = false;
-
-            if (string.IsNullOrWhiteSpace(binding))
-                return false;
-
-            string normalized = binding.Trim()
-                .Replace("<", string.Empty)
-                .Replace(">", string.Empty)
-                .Replace("/", string.Empty)
-                .Replace(" ", string.Empty)
-                .ToLowerInvariant();
-
-            if (normalized.StartsWith("keyboard", StringComparison.Ordinal))
-                normalized = normalized.Substring("keyboard".Length);
-
-            switch (normalized)
-            {
-                case "middlemouse":
-                case "middlebutton":
-                case "mousemiddlebutton":
-                    held = MouseDevice.current != null && MouseDevice.current.middleButton.isPressed;
-                    return true;
-
-                case "rightmouse":
-                case "rightbutton":
-                case "mouserightbutton":
-                    held = MouseDevice.current != null && MouseDevice.current.rightButton.isPressed;
-                    return true;
-
-                case "leftmouse":
-                case "leftbutton":
-                case "mouseleftbutton":
-                    held = MouseDevice.current != null && MouseDevice.current.leftButton.isPressed;
-                    return true;
-
-                case "mouse4":
-                case "mouseback":
-                case "mousebackbutton":
-                    held = MouseDevice.current != null && MouseDevice.current.backButton.isPressed;
-                    return true;
-
-                case "mouse5":
-                case "mouseforward":
-                case "mouseforwardbutton":
-                    held = MouseDevice.current != null && MouseDevice.current.forwardButton.isPressed;
-                    return true;
-            }
-
-            if (Enum.TryParse(normalized, true, out Key key))
-            {
-                held = Keyboard.current != null && Keyboard.current[key].isPressed;
-                return true;
-            }
-
-            return false;
         }
 
         private static void LogInfo(string message)

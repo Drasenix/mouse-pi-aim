@@ -7,26 +7,22 @@ using HarmonyLib;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.Controls;
-using MouseDevice = UnityEngine.InputSystem.Mouse;
 
 namespace MouseAim
 {
     internal static class MenuIntegration
     {
         private const string MenuLabel = "Aim key";
-        private const float CaptureDelay = 0.1f;
-        private const float CaptureTimeout = 10f;
+        private const string ActionName = "Aim";
 
         private static ManualLogSource _logger;
         private static bool _verbose;
 
         private static Type _settingType;
         private static object _setting;
-        private static MethodInfo _alertOnValueChanged;
 
         private static Type _pageType;
         private static Type _rowType;
-        private static Type _buttonType;
         private static Type _textType;
         private static object _rowNameText;
         private static object _rowNameRow;
@@ -35,25 +31,28 @@ namespace MouseAim
         private static bool _patchAttempted;
         private static bool _setupPatched;
         private static bool _updateNamePatched;
-        private static bool _buttonClickPatched;
-        private static bool _buttonRefreshPatched;
         private static bool _textPatched;
         private static bool _injected;
+        private static bool _bindingHooked;
+        private static bool _actionErrorLogged;
+        private static float _nextActionTryTime;
         private static float _nextTryTime;
         private static float _nextSettingTryTime;
         private static float _nextPatchTryTime;
         private static bool _errorLogged;
 
-        private static bool s_isCapturing;
-        private static float s_captureStartTime;
+        private static InputAction _aimAction;
+        private static string _lastKeyboardPath;
+        private static string _lastGamepadPath;
 
-        public static bool IsCapturing => s_isCapturing;
+        internal static InputAction AimAction => _aimAction;
 
         public static void Initialize(ManualLogSource logger, bool verbose)
         {
             _logger = logger;
             _verbose = verbose;
 
+            EnsureInputAction();
             CreateSetting();
             ApplyPatches();
             TryInject();
@@ -61,7 +60,9 @@ namespace MouseAim
 
         public static void Tick()
         {
-            if (_setting == null && Time.unscaledTime >= _nextSettingTryTime)
+            EnsureInputAction();
+
+            if (_setting == null && _aimAction != null && Time.unscaledTime >= _nextSettingTryTime)
             {
                 _nextSettingTryTime = Time.unscaledTime + 2f;
                 CreateSetting();
@@ -80,129 +81,268 @@ namespace MouseAim
             }
         }
 
-        public static void UpdateKeyCapture()
+        public static void Shutdown()
         {
-            if (!s_isCapturing)
-                return;
-
-            float elapsed = Time.unscaledTime - s_captureStartTime;
-            if (elapsed < CaptureDelay)
-                return;
-
-            if (elapsed > CaptureTimeout)
+            if (_bindingHooked)
             {
-                CancelKeyCapture("timeout");
-                return;
+                InputManager.OnSaveBindings -= OnBindingsSaved;
+                _bindingHooked = false;
             }
 
-            if (Keyboard.current != null)
+            if (_harmony != null)
             {
-                KeyControl escape = Keyboard.current[Key.Escape];
-                if (escape != null && escape.wasPressedThisFrame)
-                {
-                    CancelKeyCapture("escape");
-                    return;
-                }
-
-                foreach (KeyControl control in Keyboard.current.allKeys)
-                {
-                    if (control != null && control.wasPressedThisFrame)
-                    {
-                        SetCapturedKey(control.keyCode.ToString());
-                        return;
-                    }
-                }
-            }
-
-            if (MouseDevice.current != null)
-            {
-                if (MouseDevice.current.middleButton.wasPressedThisFrame)
-                {
-                    SetCapturedKey("MiddleMouse");
-                    return;
-                }
-
-                if (MouseDevice.current.rightButton.wasPressedThisFrame)
-                {
-                    SetCapturedKey("RightMouse");
-                    return;
-                }
-
-                if (MouseDevice.current.backButton.wasPressedThisFrame)
-                {
-                    SetCapturedKey("Mouse4");
-                    return;
-                }
-
-                if (MouseDevice.current.forwardButton.wasPressedThisFrame)
-                {
-                    SetCapturedKey("Mouse5");
-                    return;
-                }
+                _harmony.UnpatchSelf();
+                _harmony = null;
             }
         }
 
-        private static void BeginKeyCapture()
+        private static void EnsureInputAction()
         {
-            if (s_isCapturing)
+            if (_aimAction != null)
                 return;
 
-            s_isCapturing = true;
-            s_captureStartTime = Time.unscaledTime;
-            RefreshSettingLabel();
-
-            if (_verbose)
-                _logger.LogInfo("[MouseAim] waiting for aim key...");
-        }
-
-        private static void SetCapturedKey(string key)
-        {
-            s_isCapturing = false;
-
-            Plugin plugin = Plugin.Instance;
-            if (plugin != null)
-            {
-                plugin.AimButton.Value = key;
-                plugin.Config.Save();
-
-                if (plugin.Verbose.Value)
-                    _logger.LogInfo("[MouseAim] aim key captured: " + key);
-            }
-
-            RefreshSettingLabel();
-        }
-
-        private static void CancelKeyCapture(string reason)
-        {
-            s_isCapturing = false;
-            RefreshSettingLabel();
-
-            if (_verbose)
-                _logger.LogInfo("[MouseAim] aim key capture cancelled (" + reason + ")");
-        }
-
-        private static void RefreshSettingLabel()
-        {
-            if (_setting == null || _alertOnValueChanged == null)
+            if (Time.unscaledTime < _nextActionTryTime)
                 return;
+
+            _nextActionTryTime = Time.unscaledTime + 2f;
 
             try
             {
-                _alertOnValueChanged.Invoke(_setting, null);
+                InputManager manager = FindInputManager();
+                if (manager == null)
+                    return;
+
+                DefaultInput controls = manager.Controls;
+                if (controls == null)
+                    return;
+
+                InputActionAsset asset = controls.asset;
+                if (asset == null)
+                    return;
+
+                InputActionMap playerMap = asset.FindActionMap("Player", false);
+                if (playerMap == null)
+                    return;
+
+                InputAction action = playerMap.FindAction(ActionName, false);
+                if (action == null)
+                {
+                    Plugin plugin = Plugin.Instance;
+                    string keyboardPath = NormalizeKeyboardPath(plugin != null ? plugin.AimButton.Value : null);
+                    string gamepadPath = NormalizeGamepadPath(plugin != null ? plugin.AimGamepadBinding.Value : null);
+
+                    var enabledMaps = new List<InputActionMap>();
+                    foreach (InputActionMap map in asset.actionMaps)
+                    {
+                        if (map.enabled)
+                            enabledMaps.Add(map);
+                    }
+
+                    asset.Disable();
+                    try
+                    {
+                        action = playerMap.AddAction(ActionName, InputActionType.Button);
+                        action.AddBinding(keyboardPath, null, null, "KeyboardMouse");
+                        action.AddBinding(gamepadPath, null, null, "Gamepad");
+                    }
+                    finally
+                    {
+                        for (int i = 0; i < enabledMaps.Count; i++)
+                            enabledMaps[i].Enable();
+                    }
+
+                    if (_verbose)
+                        _logger.LogInfo("[MouseAim] input action created: " + keyboardPath + ", " + gamepadPath);
+                }
+
+                _aimAction = action;
+                _lastKeyboardPath = NormalizeKeyboardPath(GetBindingPath(action, "KeyboardMouse"));
+                _lastGamepadPath = NormalizeGamepadPath(GetBindingPath(action, "Gamepad"));
+
+                if (!_bindingHooked)
+                {
+                    InputManager.OnSaveBindings += OnBindingsSaved;
+                    _bindingHooked = true;
+                }
+
+                _nextSettingTryTime = 0f;
             }
             catch (Exception e)
             {
-                LogError("RefreshSettingLabel: " + e.Message);
+                if (!_actionErrorLogged)
+                {
+                    _actionErrorLogged = true;
+                    LogError("EnsureInputAction: " + e.Message);
+                }
             }
+        }
+
+        private static InputManager FindInputManager()
+        {
+            try
+            {
+                InputManager[] managers = Resources.FindObjectsOfTypeAll<InputManager>();
+                if (managers == null)
+                    return null;
+
+                for (int i = 0; i < managers.Length; i++)
+                {
+                    if (managers[i] != null)
+                        return managers[i];
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
+            return null;
+        }
+
+        private static void OnBindingsSaved()
+        {
+            if (_aimAction == null || Plugin.Instance == null)
+                return;
+
+            string keyboardPath = NormalizeKeyboardPath(GetBindingPath(_aimAction, "KeyboardMouse"));
+            string gamepadPath = NormalizeGamepadPath(GetBindingPath(_aimAction, "Gamepad"));
+            bool changed = false;
+
+            if (!string.IsNullOrEmpty(keyboardPath) && keyboardPath != _lastKeyboardPath)
+            {
+                _lastKeyboardPath = keyboardPath;
+                Plugin.Instance.AimButton.Value = keyboardPath;
+                changed = true;
+            }
+
+            if (!string.IsNullOrEmpty(gamepadPath) && gamepadPath != _lastGamepadPath)
+            {
+                _lastGamepadPath = gamepadPath;
+                Plugin.Instance.AimGamepadBinding.Value = gamepadPath;
+                changed = true;
+            }
+
+            if (changed)
+            {
+                Plugin.Instance.Config.Save();
+
+                if (_verbose)
+                    _logger.LogInfo("[MouseAim] aim bindings saved: " + keyboardPath + ", " + gamepadPath);
+            }
+        }
+
+        private static string GetBindingPath(InputAction action, string group)
+        {
+            if (action == null)
+                return null;
+
+            foreach (InputBinding binding in action.bindings)
+            {
+                if (binding.isPartOfComposite)
+                    continue;
+
+                string groups = binding.groups ?? string.Empty;
+                if (groups.IndexOf(group, StringComparison.OrdinalIgnoreCase) < 0)
+                    continue;
+
+                string path = binding.effectivePath;
+                if (!string.IsNullOrEmpty(path))
+                    return path;
+            }
+
+            return null;
+        }
+
+        private static string NormalizeKeyboardPath(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return "<Keyboard>/v";
+
+            string trimmed = value.Trim();
+            if (trimmed.StartsWith("<", StringComparison.Ordinal))
+                return trimmed;
+
+            if (trimmed.StartsWith("/", StringComparison.Ordinal))
+            {
+                int slash = trimmed.IndexOf('/', 1);
+                if (slash > 0)
+                    return "<" + trimmed.Substring(1, slash - 1) + ">" + trimmed.Substring(slash);
+            }
+
+            if (trimmed.StartsWith("Keyboard/", StringComparison.OrdinalIgnoreCase))
+                return "<Keyboard>/" + trimmed.Substring("Keyboard/".Length);
+
+            string lower = trimmed.ToLowerInvariant();
+            switch (lower)
+            {
+                case "middlemouse":
+                case "middlebutton":
+                    return "<Mouse>/middleButton";
+                case "rightmouse":
+                case "rightbutton":
+                    return "<Mouse>/rightButton";
+                case "leftmouse":
+                case "leftbutton":
+                    return "<Mouse>/leftButton";
+                case "mouse4":
+                case "mouseback":
+                    return "<Mouse>/backButton";
+                case "mouse5":
+                case "mouseforward":
+                    return "<Mouse>/forwardButton";
+            }
+
+            if (Enum.TryParse(lower, true, out Key key))
+            {
+                if (Keyboard.current != null)
+                {
+                    KeyControl control = Keyboard.current[key];
+                    if (control != null)
+                    {
+                        string path = control.path;
+                        if (path.StartsWith("/", StringComparison.Ordinal))
+                        {
+                            int slash = path.IndexOf('/', 1);
+                            if (slash > 0)
+                                return "<" + path.Substring(1, slash - 1) + ">" + path.Substring(slash);
+                        }
+
+                        return path;
+                    }
+                }
+
+                return "<Keyboard>/" + lower;
+            }
+
+            return "<Keyboard>/v";
+        }
+
+        private static string NormalizeGamepadPath(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return "<Gamepad>/leftShoulder";
+
+            string trimmed = value.Trim();
+            if (trimmed.StartsWith("<", StringComparison.Ordinal))
+                return trimmed;
+
+            if (trimmed.StartsWith("/", StringComparison.Ordinal))
+            {
+                int slash = trimmed.IndexOf('/', 1);
+                if (slash > 0)
+                    return "<" + trimmed.Substring(1, slash - 1) + ">" + trimmed.Substring(slash);
+            }
+
+            return "<Gamepad>/leftShoulder";
         }
 
         private static void CreateSetting()
         {
-            if (_setting != null)
+            if (_setting != null || _aimAction == null)
                 return;
 
             if (_settingType == null)
-                _settingType = FindType("MouseSettings.SettingInt");
+                _settingType = FindType("MouseSettings.SettingInputBinding");
 
             if (_settingType == null)
                 return;
@@ -213,17 +353,14 @@ namespace MouseAim
                 ((UnityEngine.Object)_setting).name = "AimKey";
 
                 InitializeLists(_setting);
-                SetField(_setting, "defaultValue", 0);
-                SetField(_setting, "minValue", 0);
-                SetField(_setting, "maxValue", 0);
-                SetField(_setting, "incrementalValue", 1);
+
+                InputActionReference reference = InputActionReference.Create(_aimAction);
+                SetField(_setting, "defaultValue", reference);
+                SetField(_setting, "bindingId", string.Empty);
                 SetField(_setting, "isCloudSave", false);
-                SetEnumField(_setting, "displayType", "MouseSettings.SettingDisplayType", "Button");
+                SetEnumField(_setting, "displayType", "MouseSettings.SettingDisplayType", "InputBinding");
 
-                _alertOnValueChanged = _settingType.GetMethod("AlertOnValueChanged",
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-
-                _logger.LogInfo("[MouseAim] menu setting created (Aim key button)");
+                _logger.LogInfo("[MouseAim] native aim binding setting created");
             }
             catch (Exception e)
             {
@@ -239,10 +376,9 @@ namespace MouseAim
 
             if (_pageType == null) _pageType = FindType("UI.Notebook.Settings.SettingsPageUI");
             if (_rowType == null) _rowType = FindType("UI.Notebook.Settings.SettingsListSelectableUI");
-            if (_buttonType == null) _buttonType = FindType("UI.ValueChangeSelectableButton");
             if (_textType == null) _textType = FindType("ProjectLocalizedText");
 
-            if (_pageType == null || _rowType == null || _buttonType == null)
+            if (_pageType == null || _rowType == null)
                 return;
 
             _patchAttempted = true;
@@ -254,8 +390,6 @@ namespace MouseAim
 
                 MethodInfo setup = FindMethod(_rowType, "Setup", 3);
                 MethodInfo updateName = FindMethod(_rowType, "UpdateName", 0);
-                MethodInfo click = FindMethod(_buttonType, "OnButtonClicked", 0);
-                MethodInfo refresh = FindMethod(_buttonType, "RefreshValueDisplay", 0);
                 MethodInfo updateText = _textType != null
                     ? FindMethod(_textType, "UpdateText", 1)
                     : null;
@@ -288,34 +422,6 @@ namespace MouseAim
                     }
                 }
 
-                if (!_buttonClickPatched)
-                {
-                    if (click != null)
-                    {
-                        _harmony.Patch(click, prefix: new HarmonyMethod(
-                            typeof(MenuIntegration).GetMethod(nameof(OnButtonClickedPrefix), BindingFlags.Static | BindingFlags.NonPublic)));
-                        _buttonClickPatched = true;
-                    }
-                    else
-                    {
-                        LogError("ValueChangeSelectableButton.OnButtonClicked not found");
-                    }
-                }
-
-                if (!_buttonRefreshPatched)
-                {
-                    if (refresh != null)
-                    {
-                        _harmony.Patch(refresh, postfix: new HarmonyMethod(
-                            typeof(MenuIntegration).GetMethod(nameof(ButtonRefreshPostfix), BindingFlags.Static | BindingFlags.NonPublic)));
-                        _buttonRefreshPatched = true;
-                    }
-                    else
-                    {
-                        LogError("ValueChangeSelectableButton.RefreshValueDisplay not found");
-                    }
-                }
-
                 if (!_textPatched && updateText != null)
                 {
                     _harmony.Patch(updateText, postfix: new HarmonyMethod(
@@ -329,53 +435,6 @@ namespace MouseAim
             {
                 _patchAttempted = false;
                 LogError("ApplyPatches: " + e.Message);
-            }
-        }
-
-        private static bool OnButtonClickedPrefix(object __instance)
-        {
-            try
-            {
-                object current = GetField(__instance, "_settingInt");
-                if (!ReferenceEquals(current, _setting))
-                    return true;
-
-                BeginKeyCapture();
-                return false;
-            }
-            catch (Exception e)
-            {
-                LogError("OnButtonClickedPrefix: " + e.Message);
-                return true;
-            }
-        }
-
-        private static void ButtonRefreshPostfix(object __instance)
-        {
-            try
-            {
-                object current = GetField(__instance, "_settingInt");
-                if (!ReferenceEquals(current, _setting))
-                    return;
-
-                object label = GetField(__instance, "buttonLabel");
-                string text;
-
-                if (s_isCapturing)
-                {
-                    text = "Press a key...";
-                }
-                else
-                {
-                    Plugin plugin = Plugin.Instance;
-                    text = plugin != null ? plugin.AimButton.Value : "V";
-                }
-
-                OverrideText(label, text);
-            }
-            catch (Exception e)
-            {
-                LogError("ButtonRefreshPostfix: " + e.Message);
             }
         }
 
@@ -411,6 +470,15 @@ namespace MouseAim
 
                     bool isVideo = GetField(page, "settingResolution") != null;
                     object firstGroup = null;
+
+                    if (_verbose)
+                    {
+                        object pagePrefab = GetField(page, "listItemPrefab");
+                        _logger.LogInfo("[MouseAim] page candidate '" + ((UnityEngine.Object)page).name +
+                                        "' video=" + isVideo +
+                                        " groups=" + groups.Count +
+                                        " rowPrefab=" + (pagePrefab != null ? pagePrefab.GetType().FullName : "null"));
+                    }
 
                     for (int g = 0; g < groups.Count; g++)
                     {
@@ -474,6 +542,13 @@ namespace MouseAim
 
             try
             {
+                object prefab = GetField(page, "listItemPrefab");
+                if (_verbose)
+                {
+                    _logger.LogInfo("[MouseAim] page '" + ((UnityEngine.Object)page).name +
+                                    "' rowPrefab=" + (prefab != null ? prefab.GetType().FullName : "null"));
+                }
+
                 object isSetupValue = GetField(page, "isSetup");
                 bool isSetup = isSetupValue is bool value && value;
                 if (isSetup)

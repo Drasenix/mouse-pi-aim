@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.0
+- The **Aim key** row now uses the game's native Commands rebinding UI
+  (`SettingInputBinding` / `ControlsRemapping`): click it, then press the key
+  or mouse button in the same popup style as the other Commands entries.
+- Removed the custom key-capture row and its dead code.
+- Added `AimGamepadBinding` for the gamepad side of the native rebinding.
+- Default key remains **V**.
+- No weapon animation or weapon pose change yet.
+- No sensitivity or recoil change.
+
 ## 1.2.0
 - Aim key can now be captured directly: click **Settings > Controls > Aim key**,
   then press the keyboard key or mouse button you want.

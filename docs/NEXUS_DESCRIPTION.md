@@ -13,11 +13,13 @@ weapon spread is reduced while aiming.
   secondary fire or native weapon scopes.
 - Works alongside **Mouse Double Tap Dash**.
 
-## Version 1.2.0
+## Version 1.3.0
 
-- Aim key can now be captured directly: click **Settings > Controls > Aim key**,
-  then press the keyboard key or mouse button you want.
-- Removed the fixed key list.
+- The **Aim key** row now uses the game's native Commands rebinding UI
+  (`SettingInputBinding` / `ControlsRemapping`): click it, then press the key
+  or mouse button in the same popup style as the other Commands entries.
+- Removed the custom key-capture row and its dead code.
+- Added `AimGamepadBinding` for the gamepad side of the native rebinding.
 - Default key remains **V**.
 - No weapon animation or weapon pose change yet: the weapon stays in its normal
   pose while aiming.
@@ -56,6 +58,7 @@ File: `BepInEx/config/com.cono.mouseaim.cfg`
 [General]
 Enabled = true
 AimButton = V
+AimGamepadBinding = <Gamepad>/leftShoulder
 
 [Zoom]
 AimZoomDegrees = 28
@@ -73,9 +76,9 @@ Verbose = false
 
 - `AimZoomDegrees = 0`: accuracy only, no zoom.
 - `AimSpreadMultiplier = 1`: zoom only, no accuracy change.
-- `AimButton`: any keyboard key or mouse button. Click **Settings > Controls >
-  Aim key**, then press the key you want. `RightMouse` may conflict with
-  secondary fire or native scopes.
+- `AimButton`: keyboard/mouse binding path, changed in **Settings > Controls >
+  Aim key**. `RightMouse` may conflict with secondary fire or native scopes.
+- `AimGamepadBinding`: gamepad binding path, changed through the same row.
 
 Change the values in the file and restart the game.
 

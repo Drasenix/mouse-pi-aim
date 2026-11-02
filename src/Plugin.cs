@@ -10,7 +10,7 @@ namespace MouseAim
     {
         public const string Guid = "com.cono.mouseaim";
         public const string Name = "Mouse Aim";
-        public const string Version = "1.2.0";
+        public const string Version = "1.3.0";
 
         internal static Plugin Instance { get; private set; }
 
@@ -18,6 +18,7 @@ namespace MouseAim
 
         internal ConfigEntry<bool> Enabled;
         internal ConfigEntry<string> AimButton;
+        internal ConfigEntry<string> AimGamepadBinding;
         internal ConfigEntry<float> AimZoomDegrees;
         internal ConfigEntry<float> AimTransitionSeconds;
         internal ConfigEntry<float> AimSpreadMultiplier;
@@ -31,8 +32,10 @@ namespace MouseAim
             Enabled = Config.Bind("General", "Enabled", true,
                 "Active la visée maintenue.");
             AimButton = Config.Bind("General", "AimButton", "V",
-                "Touche de visée maintenue. Ex: V, MiddleMouse, RightMouse, Mouse4, Mouse5, LeftShift. " +
-                "Modifiable aussi dans Settings > Controls > Aim key.");
+                "Binding clavier/souris de la visée. Modifiable dans Settings > Controls > Aim key. " +
+                "Peut contenir un nom simple (V, MiddleMouse) ou un chemin Input System (<Keyboard>/v).");
+            AimGamepadBinding = Config.Bind("General", "AimGamepadBinding", "<Gamepad>/leftShoulder",
+                "Binding manette de la visée, modifiable dans Settings > Controls > Aim key.");
 
             AimZoomDegrees = Config.Bind("Zoom", "AimZoomDegrees", 28f,
                 new ConfigDescription("Réduction du FOV pendant la visée, en degrés.",
