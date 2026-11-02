@@ -5,38 +5,28 @@ using System.Reflection;
 using BepInEx.Logging;
 using HarmonyLib;
 using UnityEngine;
+using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.Controls;
+using MouseDevice = UnityEngine.InputSystem.Mouse;
 
 namespace MouseAim
 {
     internal static class MenuIntegration
     {
-        private static readonly string[] KeyOptions =
-        {
-            "V",
-            "MiddleMouse",
-            "RightMouse",
-            "LeftShift",
-            "Mouse4",
-            "Mouse5",
-            "B",
-            "N"
-        };
-
         private const string MenuLabel = "Aim key";
-        private const int DefaultIndex = 0;
+        private const float CaptureDelay = 0.1f;
+        private const float CaptureTimeout = 10f;
 
         private static ManualLogSource _logger;
         private static bool _verbose;
 
         private static Type _settingType;
         private static object _setting;
-        private static MethodInfo _getAsInt;
-        private static MethodInfo _setValueWithoutNotify;
         private static MethodInfo _alertOnValueChanged;
 
         private static Type _pageType;
         private static Type _rowType;
-        private static Type _stepperType;
+        private static Type _buttonType;
         private static Type _textType;
         private static object _rowNameText;
         private static object _rowNameRow;
@@ -45,14 +35,19 @@ namespace MouseAim
         private static bool _patchAttempted;
         private static bool _setupPatched;
         private static bool _updateNamePatched;
-        private static bool _stepperPatched;
+        private static bool _buttonClickPatched;
+        private static bool _buttonRefreshPatched;
         private static bool _textPatched;
         private static bool _injected;
         private static float _nextTryTime;
         private static float _nextSettingTryTime;
         private static float _nextPatchTryTime;
-        private static bool _syncing;
         private static bool _errorLogged;
+
+        private static bool s_isCapturing;
+        private static float s_captureStartTime;
+
+        public static bool IsCapturing => s_isCapturing;
 
         public static void Initialize(ManualLogSource logger, bool verbose)
         {
@@ -85,6 +80,122 @@ namespace MouseAim
             }
         }
 
+        public static void UpdateKeyCapture()
+        {
+            if (!s_isCapturing)
+                return;
+
+            float elapsed = Time.unscaledTime - s_captureStartTime;
+            if (elapsed < CaptureDelay)
+                return;
+
+            if (elapsed > CaptureTimeout)
+            {
+                CancelKeyCapture("timeout");
+                return;
+            }
+
+            if (Keyboard.current != null)
+            {
+                KeyControl escape = Keyboard.current[Key.Escape];
+                if (escape != null && escape.wasPressedThisFrame)
+                {
+                    CancelKeyCapture("escape");
+                    return;
+                }
+
+                foreach (KeyControl control in Keyboard.current.allKeys)
+                {
+                    if (control != null && control.wasPressedThisFrame)
+                    {
+                        SetCapturedKey(control.keyCode.ToString());
+                        return;
+                    }
+                }
+            }
+
+            if (MouseDevice.current != null)
+            {
+                if (MouseDevice.current.middleButton.wasPressedThisFrame)
+                {
+                    SetCapturedKey("MiddleMouse");
+                    return;
+                }
+
+                if (MouseDevice.current.rightButton.wasPressedThisFrame)
+                {
+                    SetCapturedKey("RightMouse");
+                    return;
+                }
+
+                if (MouseDevice.current.backButton.wasPressedThisFrame)
+                {
+                    SetCapturedKey("Mouse4");
+                    return;
+                }
+
+                if (MouseDevice.current.forwardButton.wasPressedThisFrame)
+                {
+                    SetCapturedKey("Mouse5");
+                    return;
+                }
+            }
+        }
+
+        private static void BeginKeyCapture()
+        {
+            if (s_isCapturing)
+                return;
+
+            s_isCapturing = true;
+            s_captureStartTime = Time.unscaledTime;
+            RefreshSettingLabel();
+
+            if (_verbose)
+                _logger.LogInfo("[MouseAim] waiting for aim key...");
+        }
+
+        private static void SetCapturedKey(string key)
+        {
+            s_isCapturing = false;
+
+            Plugin plugin = Plugin.Instance;
+            if (plugin != null)
+            {
+                plugin.AimButton.Value = key;
+                plugin.Config.Save();
+
+                if (plugin.Verbose.Value)
+                    _logger.LogInfo("[MouseAim] aim key captured: " + key);
+            }
+
+            RefreshSettingLabel();
+        }
+
+        private static void CancelKeyCapture(string reason)
+        {
+            s_isCapturing = false;
+            RefreshSettingLabel();
+
+            if (_verbose)
+                _logger.LogInfo("[MouseAim] aim key capture cancelled (" + reason + ")");
+        }
+
+        private static void RefreshSettingLabel()
+        {
+            if (_setting == null || _alertOnValueChanged == null)
+                return;
+
+            try
+            {
+                _alertOnValueChanged.Invoke(_setting, null);
+            }
+            catch (Exception e)
+            {
+                LogError("RefreshSettingLabel: " + e.Message);
+            }
+        }
+
         private static void CreateSetting()
         {
             if (_setting != null)
@@ -98,94 +209,26 @@ namespace MouseAim
 
             try
             {
-                int index = GetConfiguredIndex();
-
                 _setting = ScriptableObject.CreateInstance(_settingType);
                 ((UnityEngine.Object)_setting).name = "AimKey";
 
                 InitializeLists(_setting);
-                SetField(_setting, "defaultValue", index);
+                SetField(_setting, "defaultValue", 0);
                 SetField(_setting, "minValue", 0);
-                SetField(_setting, "maxValue", KeyOptions.Length - 1);
+                SetField(_setting, "maxValue", 0);
                 SetField(_setting, "incrementalValue", 1);
                 SetField(_setting, "isCloudSave", false);
-                SetEnumField(_setting, "displayType", "MouseSettings.SettingDisplayType", "Stepper");
+                SetEnumField(_setting, "displayType", "MouseSettings.SettingDisplayType", "Button");
 
-                _getAsInt = _settingType.GetMethod("GetAsInt", BindingFlags.Instance | BindingFlags.Public);
-                _setValueWithoutNotify = _settingType.GetMethod("SetValueWithoutNotify", BindingFlags.Instance | BindingFlags.Public);
-                _alertOnValueChanged = _settingType.GetMethod("AlertOnValueChanged", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                _alertOnValueChanged = _settingType.GetMethod("AlertOnValueChanged",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
-                _syncing = true;
-                if (_setValueWithoutNotify != null)
-                {
-                    _setValueWithoutNotify.Invoke(_setting, new object[] { index });
-                }
-                else
-                {
-                    MethodInfo setAsInt = _settingType.GetMethod("SetAsInt", BindingFlags.Instance | BindingFlags.Public);
-                    setAsInt?.Invoke(_setting, new object[] { index });
-                }
-                _alertOnValueChanged?.Invoke(_setting, null);
-                _syncing = false;
-
-                EventInfo changedEvent = _settingType.GetEvent("OnValueChanged", BindingFlags.Instance | BindingFlags.Public);
-                if (changedEvent != null)
-                    changedEvent.AddEventHandler(_setting, new Action(OnMenuValueChanged));
-
-                _logger.LogInfo("[MouseAim] menu setting created (Aim key)");
+                _logger.LogInfo("[MouseAim] menu setting created (Aim key button)");
             }
             catch (Exception e)
             {
                 LogError("CreateSetting: " + e);
                 _setting = null;
-            }
-        }
-
-        private static int GetConfiguredIndex()
-        {
-            string configured = Plugin.Instance != null ? Plugin.Instance.AimButton.Value : KeyOptions[DefaultIndex];
-
-            for (int i = 0; i < KeyOptions.Length; i++)
-            {
-                if (string.Equals(KeyOptions[i], configured, StringComparison.OrdinalIgnoreCase))
-                    return i;
-            }
-
-            if (Plugin.Instance != null)
-            {
-                Plugin.Instance.AimButton.Value = KeyOptions[DefaultIndex];
-                Plugin.Instance.Config.Save();
-                _logger.LogWarning("[MouseAim] unknown AimButton '" + configured +
-                                   "', reset to " + KeyOptions[DefaultIndex]);
-            }
-
-            return DefaultIndex;
-        }
-
-        private static void OnMenuValueChanged()
-        {
-            if (_syncing || _setting == null || _getAsInt == null)
-                return;
-
-            try
-            {
-                int index = (int)_getAsInt.Invoke(_setting, null);
-                index = Mathf.Clamp(index, 0, KeyOptions.Length - 1);
-                string key = KeyOptions[index];
-
-                if (Plugin.Instance == null)
-                    return;
-
-                if (!string.Equals(Plugin.Instance.AimButton.Value, key, StringComparison.Ordinal))
-                {
-                    Plugin.Instance.AimButton.Value = key;
-                    Plugin.Instance.Config.Save();
-                    _logger.LogInfo("[MouseAim] aim key set to " + key + " (menu)");
-                }
-            }
-            catch (Exception e)
-            {
-                LogError("OnMenuValueChanged: " + e.Message);
             }
         }
 
@@ -196,10 +239,10 @@ namespace MouseAim
 
             if (_pageType == null) _pageType = FindType("UI.Notebook.Settings.SettingsPageUI");
             if (_rowType == null) _rowType = FindType("UI.Notebook.Settings.SettingsListSelectableUI");
-            if (_stepperType == null) _stepperType = FindType("UI.ValueChangeSelectableStepper");
+            if (_buttonType == null) _buttonType = FindType("UI.ValueChangeSelectableButton");
             if (_textType == null) _textType = FindType("ProjectLocalizedText");
 
-            if (_pageType == null || _rowType == null || _stepperType == null)
+            if (_pageType == null || _rowType == null || _buttonType == null)
                 return;
 
             _patchAttempted = true;
@@ -211,7 +254,8 @@ namespace MouseAim
 
                 MethodInfo setup = FindMethod(_rowType, "Setup", 3);
                 MethodInfo updateName = FindMethod(_rowType, "UpdateName", 0);
-                MethodInfo refresh = FindMethod(_stepperType, "RefreshValueDisplay", 0);
+                MethodInfo click = FindMethod(_buttonType, "OnButtonClicked", 0);
+                MethodInfo refresh = FindMethod(_buttonType, "RefreshValueDisplay", 0);
                 MethodInfo updateText = _textType != null
                     ? FindMethod(_textType, "UpdateText", 1)
                     : null;
@@ -244,17 +288,31 @@ namespace MouseAim
                     }
                 }
 
-                if (!_stepperPatched)
+                if (!_buttonClickPatched)
+                {
+                    if (click != null)
+                    {
+                        _harmony.Patch(click, prefix: new HarmonyMethod(
+                            typeof(MenuIntegration).GetMethod(nameof(OnButtonClickedPrefix), BindingFlags.Static | BindingFlags.NonPublic)));
+                        _buttonClickPatched = true;
+                    }
+                    else
+                    {
+                        LogError("ValueChangeSelectableButton.OnButtonClicked not found");
+                    }
+                }
+
+                if (!_buttonRefreshPatched)
                 {
                     if (refresh != null)
                     {
                         _harmony.Patch(refresh, postfix: new HarmonyMethod(
-                            typeof(MenuIntegration).GetMethod(nameof(StepperRefreshPostfix), BindingFlags.Static | BindingFlags.NonPublic)));
-                        _stepperPatched = true;
+                            typeof(MenuIntegration).GetMethod(nameof(ButtonRefreshPostfix), BindingFlags.Static | BindingFlags.NonPublic)));
+                        _buttonRefreshPatched = true;
                     }
                     else
                     {
-                        LogError("Stepper RefreshValueDisplay method not found");
+                        LogError("ValueChangeSelectableButton.RefreshValueDisplay not found");
                     }
                 }
 
@@ -271,6 +329,53 @@ namespace MouseAim
             {
                 _patchAttempted = false;
                 LogError("ApplyPatches: " + e.Message);
+            }
+        }
+
+        private static bool OnButtonClickedPrefix(object __instance)
+        {
+            try
+            {
+                object current = GetField(__instance, "_settingInt");
+                if (!ReferenceEquals(current, _setting))
+                    return true;
+
+                BeginKeyCapture();
+                return false;
+            }
+            catch (Exception e)
+            {
+                LogError("OnButtonClickedPrefix: " + e.Message);
+                return true;
+            }
+        }
+
+        private static void ButtonRefreshPostfix(object __instance)
+        {
+            try
+            {
+                object current = GetField(__instance, "_settingInt");
+                if (!ReferenceEquals(current, _setting))
+                    return;
+
+                object label = GetField(__instance, "buttonLabel");
+                string text;
+
+                if (s_isCapturing)
+                {
+                    text = "Press a key...";
+                }
+                else
+                {
+                    Plugin plugin = Plugin.Instance;
+                    text = plugin != null ? plugin.AimButton.Value : "V";
+                }
+
+                OverrideText(label, text);
+            }
+            catch (Exception e)
+            {
+                LogError("ButtonRefreshPostfix: " + e.Message);
             }
         }
 
@@ -434,25 +539,6 @@ namespace MouseAim
             {
                 _rowNameRow = null;
                 _rowNameText = null;
-            }
-        }
-
-        private static void StepperRefreshPostfix(object __instance)
-        {
-            try
-            {
-                object current = GetField(__instance, "_settingInt");
-                if (!ReferenceEquals(current, _setting))
-                    return;
-
-                object label = GetField(__instance, "label");
-                int index = (int)_getAsInt.Invoke(_setting, null);
-                index = Mathf.Clamp(index, 0, KeyOptions.Length - 1);
-                OverrideText(label, KeyOptions[index]);
-            }
-            catch (Exception e)
-            {
-                LogError("StepperRefreshPostfix: " + e.Message);
             }
         }
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.0
+- Aim key can now be captured directly: click **Settings > Controls > Aim key**,
+  then press the keyboard key or mouse button you want.
+- Removed the fixed key list; any keyboard key or mouse button is accepted.
+- Default key remains **V**.
+- No weapon animation or weapon pose change yet.
+- No sensitivity or recoil change.
+
 ## 1.1.0
 - Default aim key changed from middle mouse to **V**.
 - Added an **Aim key** row in **Settings > Controls**. It cycles through V,

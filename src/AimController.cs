@@ -64,6 +64,7 @@ namespace MouseAim
         private void Update()
         {
             MenuIntegration.Tick();
+            MenuIntegration.UpdateKeyCapture();
 
             Plugin plugin = Plugin.Instance;
             if (plugin == null)

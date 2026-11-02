@@ -13,12 +13,12 @@ weapon spread is reduced while aiming.
   secondary fire or native weapon scopes.
 - Works alongside **Mouse Double Tap Dash**.
 
-## Version 1.1.0
+## Version 1.2.0
 
-- Default key changed from middle mouse to **V**.
-- In-game **Aim key** setting added.
-- Default zoom increased to 28°.
-- Faster, more responsive zoom transition.
+- Aim key can now be captured directly: click **Settings > Controls > Aim key**,
+  then press the keyboard key or mouse button you want.
+- Removed the fixed key list.
+- Default key remains **V**.
 - No weapon animation or weapon pose change yet: the weapon stays in its normal
   pose while aiming.
 - No sensitivity or recoil change.
@@ -73,9 +73,9 @@ Verbose = false
 
 - `AimZoomDegrees = 0`: accuracy only, no zoom.
 - `AimSpreadMultiplier = 1`: zoom only, no accuracy change.
-- `AimButton`: `V`, `MiddleMouse`, `RightMouse`, `LeftShift`, `Mouse4`,
-  `Mouse5`, `B` or `N`. Can also be changed in **Settings > Controls > Aim key**.
-  `RightMouse` may conflict with secondary fire or native scopes.
+- `AimButton`: any keyboard key or mouse button. Click **Settings > Controls >
+  Aim key**, then press the key you want. `RightMouse` may conflict with
+  secondary fire or native scopes.
 
 Change the values in the file and restart the game.
 

@@ -10,7 +10,7 @@ namespace MouseAim
     {
         public const string Guid = "com.cono.mouseaim";
         public const string Name = "Mouse Aim";
-        public const string Version = "1.1.0";
+        public const string Version = "1.2.0";
 
         internal static Plugin Instance { get; private set; }
 

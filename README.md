@@ -14,12 +14,11 @@ button is **V**, and it can be changed in **Settings > Controls > Aim key**.
 - Reduced weapon spread while aiming.
 - The crosshair tightens automatically because the game derives its size from
   the same spread value.
-- Dedicated, configurable aim button: `V`, `MiddleMouse`, `RightMouse`, `Mouse4`,
-  `Mouse5`, `LeftShift`, `B` or `N`, changeable in the in-game settings or the
-  config file.
+- Dedicated, configurable aim button: any keyboard key or mouse button.
+  Click **Settings > Controls > Aim key**, then press the key you want.
 - Works alongside the **Mouse Double Tap Dash** mod.
 
-## What version 1.1.0 does not do
+## What version 1.2.0 does not do
 
 - No weapon animation or weapon pose change: the weapon stays in its normal
   pose while aiming.
@@ -43,7 +42,7 @@ button is **V**, and it can be changed in **Settings > Controls > Aim key**.
 1. Install the unstripped BepInEx package into the game root (the folder that
    contains `MOUSE.exe`).
 2. Launch the game once, then check that `BepInEx/LogOutput.log` exists.
-3. Extract `MouseAim-1.1.0.zip` into the game root. The result must be:
+3. Extract `MouseAim-1.2.0.zip` into the game root. The result must be:
 
    ```
    <game>/BepInEx/plugins/MouseAim.dll
@@ -77,7 +76,7 @@ Verbose = false
 | Option | Description |
 | --- | --- |
 | `Enabled` | Enables or disables the mod. |
-| `AimButton` | Hold this button to aim. Accepts `V`, `MiddleMouse`, `RightMouse`, `LeftShift`, `Mouse4`, `Mouse5`, `B` or `N`. Can also be changed in **Settings > Controls > Aim key**. `RightMouse` may conflict with the game's secondary fire or native scope. |
+| `AimButton` | Hold this button to aim. Any keyboard key or mouse button. Click **Settings > Controls > Aim key**, then press the key you want. `RightMouse` may conflict with the game's secondary fire or native scope. |
 | `AimZoomDegrees` | FOV reduction while aiming, in degrees. Set to `0` for accuracy only. |
 | `AimTransitionSeconds` | Zoom transition duration. |
 | `AimSpreadMultiplier` | Spread multiplier while aiming. `0.5` halves the spread. Set to `1` for zoom only. |
@@ -86,9 +85,9 @@ Verbose = false
 
 Change the values in the file and restart the game.
 
-The aim key can also be changed in **Settings > Controls > Aim key**. The
-in-game row cycles through the supported keys and saves the choice to the
-BepInEx config immediately.
+The aim key can also be changed in **Settings > Controls > Aim key**. Click the
+row, then press the keyboard key or mouse button you want. The choice is saved
+to the BepInEx config immediately.
 
 ## Build from source
 
